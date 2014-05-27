@@ -2901,7 +2901,7 @@ my.MultiView = Backbone.View.extend({
       <div class="navigation"> \
         <div class="btn-group" data-toggle="buttons-radio"> \
         {{#views}} \
-        <button href="#{{id}}" data-view="{{id}}" class="btn btn-default">{{label}}</button> \
+        <a href="#{{id}}" data-view="{{id}}" class="btn btn-default">{{label}}</a> \
         {{/views}} \
         </div> \
       </div> \
@@ -2911,7 +2911,7 @@ my.MultiView = Backbone.View.extend({
       <div class="menu-right"> \
         <div class="btn-group" data-toggle="buttons-checkbox"> \
           {{#sidebarViews}} \
-          <button href="#" data-action="{{id}}" class="btn btn-default">{{label}}</button> \
+          <a href="#" data-action="{{id}}" class="btn btn-default">{{label}}</a> \
           {{/sidebarViews}} \
         </div> \
       </div> \
