@@ -4,13 +4,18 @@ this.recline = this.recline || {};
 this.recline.View = this.recline.View || {};
 
 (function($, my) {
-
+  "use strict";
 // ## Map view for a Dataset using Leaflet mapping library.
 //
 // This view allows to plot gereferenced records on a map. The location
-// information can be provided either via a field with
-// [GeoJSON](http://geojson.org) objects or two fields with latitude and
-// longitude coordinates.
+// information can be provided in 2 ways:
+//
+// 1. Via a single field. This field must be either a geo_point or
+// [GeoJSON](http://geojson.org) object
+// 2. Via two fields with latitude and longitude coordinates.
+//
+// Which fields in the data these correspond to can be configured via the state
+// (and are guessed if no info is provided).
 //
 // Initialization arguments are as standard for Dataset Views. State object may
 // have the following (optional) configuration options:
@@ -21,14 +26,23 @@ this.recline.View = this.recline.View || {};
 //     geomField: {id of field containing geometry in the dataset}
 //     lonField: {id of field containing longitude in the dataset}
 //     latField: {id of field containing latitude in the dataset}
+//     autoZoom: true,
+//     // use cluster support
+//     // cluster: true = always on
+//     // cluster: false = always off
+//     cluster: false
 //   }
 // </pre>
+//
+// Useful attributes to know about (if e.g. customizing)
+//
+// * map: the Leaflet map (L.Map)
+// * features: Leaflet GeoJSON layer containing all the features (L.GeoJSON)
 my.Map = Backbone.View.extend({
-  tagName:  'div',
-  className: 'recline-map',
-
   template: ' \
-    <div class="panel map"></div> \
+    <div class="recline-map"> \
+      <div class="panel map"></div> \
+    </div> \
 ',
 
   // These are the default (case-insensitive) names of field that are used if found.
@@ -39,72 +53,130 @@ my.Map = Backbone.View.extend({
 
   initialize: function(options) {
     var self = this;
-    this.el = $(this.el);
-
-    // Listen to changes in the fields
-    this.model.fields.bind('change', function() {
-      self._setupGeometryField()
-      self.render()
-    });
-
-    // Listen to changes in the records
-    this.model.records.bind('add', function(doc){self.redraw('add',doc)});
-    this.model.records.bind('change', function(doc){
-        self.redraw('remove',doc);
-        self.redraw('add',doc);
-    });
-    this.model.records.bind('remove', function(doc){self.redraw('remove',doc)});
-    this.model.records.bind('reset', function(){self.redraw('reset')});
-
-    this.bind('view:show',function(){
-      // If the div was hidden, Leaflet needs to recalculate some sizes
-      // to display properly
-      if (self.map){
-        self.map.invalidateSize();
-        if (self._zoomPending && self.state.get('autoZoom')) {
-          self._zoomToFeatures();
-          self._zoomPending = false;
-        }
-      }
-      self.visible = true;
-    });
-    this.bind('view:hide',function(){
-      self.visible = false;
-    });
+    this.visible = true;
+    this.mapReady = false;
+    // this will be the Leaflet L.Map object (setup below)
+    this.map = null;
 
     var stateData = _.extend({
         geomField: null,
         lonField: null,
         latField: null,
-        autoZoom: true
+        autoZoom: true,
+        cluster: false
       },
       options.state
     );
     this.state = new recline.Model.ObjectState(stateData);
+
+    this._clusterOptions = {
+      zoomToBoundsOnClick: true,
+      //disableClusteringAtZoom: 10,
+      maxClusterRadius: 80,
+      singleMarkerMode: false,
+      skipDuplicateAddTesting: true,
+      animateAddingMarkers: false
+    };
+
+    // Listen to changes in the fields
+    this.listenTo(this.model.fields, 'change', function() {
+      self._setupGeometryField();
+      self.render();
+    });
+
+    // Listen to changes in the records
+    this.listenTo(this.model.records, 'add', function(doc){self.redraw('add',doc);});
+    this.listenTo(this.model.records, 'change', function(doc){
+        self.redraw('remove',doc);
+        self.redraw('add',doc);
+    });
+    this.listenTo(this.model.records, 'remove', function(doc){self.redraw('remove',doc);});
+    this.listenTo(this.model.records, 'reset', function(){self.redraw('reset');});
+
     this.menu = new my.MapMenu({
       model: this.model,
       state: this.state.toJSON()
     });
-    this.menu.state.bind('change', function() {
+    this.listenTo(this.menu.state, 'change', function() {
       self.state.set(self.menu.state.toJSON());
       self.redraw();
     });
-    this.elSidebar = this.menu.el;
-
-    this.mapReady = false;
-    this.render();
-    this.redraw();
+    this.listenTo(this.state, 'change', function() {
+      self.redraw();
+    });
+    this.elSidebar = this.menu.$el;
   },
+
+  // ## Customization Functions
+  //
+  // The following methods are designed for overriding in order to customize
+  // behaviour
+
+  // ### infobox
+  //
+  // Function to create infoboxes used in popups. The default behaviour is very simple and just lists all attributes.
+  //
+  // Users should override this function to customize behaviour i.e.
+  //
+  //     view = new View({...});
+  //     view.infobox = function(record) {
+  //       ...
+  //     }
+  infobox: function(record) {
+    var html = '';
+    for (var key in record.attributes){
+      if (!(this.state.get('geomField') && key == this.state.get('geomField'))){
+        html += '<div><strong>' + key + '</strong>: '+ record.attributes[key] + '</div>';
+      }
+    }
+    return html;
+  },
+
+  // Options to use for the [Leaflet GeoJSON layer](http://leaflet.cloudmade.com/reference.html#geojson)
+  // See also <http://leaflet.cloudmade.com/examples/geojson.html>
+  //
+  // e.g.
+  //
+  //     pointToLayer: function(feature, latLng)
+  //     onEachFeature: function(feature, layer)
+  //
+  // See defaults for examples
+  geoJsonLayerOptions: {
+    // pointToLayer function to use when creating points
+    //
+    // Default behaviour shown here is to create a marker using the
+    // popupContent set on the feature properties (created via infobox function
+    // during feature generation)
+    //
+    // NB: inside pointToLayer `this` will be set to point to this map view
+    // instance (which allows e.g. this.markers to work in this default case)
+    pointToLayer: function (feature, latlng) {
+      var marker = new L.Marker(latlng);
+      marker.bindPopup(feature.properties.popupContent);
+      // this is for cluster case
+      this.markers.addLayer(marker);
+      return marker;
+    },
+    // onEachFeature default which adds popup in
+    onEachFeature: function(feature, layer) {
+      if (feature.properties && feature.properties.popupContent) {
+        layer.bindPopup(feature.properties.popupContent);
+      }
+    }
+  },
+
+  // END: Customization section
+  // ----
 
   // ### Public: Adds the necessary elements to the page.
   //
   // Also sets up the editor fields and the map if necessary.
   render: function() {
     var self = this;
-
-    htmls = Mustache.render(this.template, this.model.toTemplateJSON());
-    $(this.el).html(htmls);
-    this.$map = this.el.find('.panel.map');
+    var htmls = Mustache.render(this.template, this.model.toTemplateJSON());
+    this.$el.html(htmls);
+    this.$map = this.$el.find('.panel.map');
+    this.redraw();
     return this;
   },
 
@@ -128,14 +200,34 @@ my.Map = Backbone.View.extend({
     }
 
     if (this._geomReady() && this.mapReady){
-      if (action == 'reset' || action == 'refresh'){
+      // removing ad re-adding the layer enables faster bulk loading
+      this.map.removeLayer(this.features);
+      this.map.removeLayer(this.markers);
+
+      var countBefore = 0;
+      this.features.eachLayer(function(){countBefore++;});
+
+      if (action == 'refresh' || action == 'reset') {
         this.features.clearLayers();
+        // recreate cluster group because of issues with clearLayer
+        this.map.removeLayer(this.markers);
+        this.markers = new L.MarkerClusterGroup(this._clusterOptions);
         this._add(this.model.records.models);
       } else if (action == 'add' && doc){
         this._add(doc);
       } else if (action == 'remove' && doc){
         this._remove(doc);
       }
+
+      // this must come before zooming!
+      // if not: errors when using e.g. circle markers like
+      // "Cannot call method 'project' of undefined"
+      if (this.state.get('cluster')) {
+        this.map.addLayer(this.markers);
+      } else {
+        this.map.addLayer(this.features);
+      }
+
       if (this.state.get('autoZoom')){
         if (this.visible){
           this._zoomToFeatures();
@@ -144,6 +236,23 @@ my.Map = Backbone.View.extend({
         }
       }
     }
+  },
+
+  show: function() {
+    // If the div was hidden, Leaflet needs to recalculate some sizes
+    // to display properly
+    if (this.map){
+      this.map.invalidateSize();
+      if (this._zoomPending && this.state.get('autoZoom')) {
+        this._zoomToFeatures();
+        this._zoomPending = false;
+      }
+    }
+    this.visible = true;
+  },
+
+  hide: function() {
+    this.visible = false;
   },
 
   _geomReady: function() {
@@ -165,29 +274,22 @@ my.Map = Backbone.View.extend({
 
     var count = 0;
     var wrongSoFar = 0;
-    _.every(docs,function(doc){
+    _.every(docs, function(doc){
       count += 1;
       var feature = self._getGeometryFromRecord(doc);
       if (typeof feature === 'undefined' || feature === null){
         // Empty field
         return true;
       } else if (feature instanceof Object){
-        // Build popup contents
-        // TODO: mustache?
-        html = ''
-        for (key in doc.attributes){
-          if (!(self.state.get('geomField') && key == self.state.get('geomField'))){
-            html += '<div><strong>' + key + '</strong>: '+ doc.attributes[key] + '</div>';
-          }
-        }
-        feature.properties = {popupContent: html};
-
-        // Add a reference to the model id, which will allow us to
-        // link this Leaflet layer to a Recline doc
-        feature.properties.cid = doc.cid;
+        feature.properties = {
+          popupContent: self.infobox(doc),
+          // Add a reference to the model id, which will allow us to
+          // link this Leaflet layer to a Recline doc
+          cid: doc.cid
+        };
 
         try {
-          self.features.addGeoJSON(feature);
+          self.features.addData(feature);
         } catch (except) {
           wrongSoFar += 1;
           var msg = 'Wrong geometry value';
@@ -197,7 +299,7 @@ my.Map = Backbone.View.extend({
           }
         }
       } else {
-        wrongSoFar += 1
+        wrongSoFar += 1;
         if (wrongSoFar <= 10) {
           self.trigger('recline:flash', {message: 'Wrong geometry value', category:'error'});
         }
@@ -206,7 +308,7 @@ my.Map = Backbone.View.extend({
     });
   },
 
-  // Private: Remove one or n features to the map
+  // Private: Remove one or n features from the map
   //
   _remove: function(docs){
 
@@ -215,13 +317,38 @@ my.Map = Backbone.View.extend({
     if (!(docs instanceof Array)) docs = [docs];
 
     _.each(docs,function(doc){
-      for (key in self.features._layers){
-        if (self.features._layers[key].cid == doc.cid){
+      for (var key in self.features._layers){
+        if (self.features._layers[key].feature.properties.cid == doc.cid){
           self.features.removeLayer(self.features._layers[key]);
         }
       }
     });
 
+  },
+
+  // Private: convert DMS coordinates to decimal
+  //
+  // north and east are positive, south and west are negative
+  //
+  _parseCoordinateString: function(coord){
+    if (typeof(coord) != 'string') {
+      return(parseFloat(coord));
+    }
+    var dms = coord.split(/[^\.\d\w]+/);
+    var deg = 0; var m = 0;
+    var toDeg = [1, 60, 3600]; // conversion factors for Deg, min, sec
+    var i; 
+    for (i = 0; i < dms.length; ++i) {
+        if (isNaN(parseFloat(dms[i]))) {
+          continue;
+        }
+        deg += parseFloat(dms[i]) / toDeg[m];
+        m += 1;
+    }
+    if (coord.match(/[SW]/)) {
+          deg = -1*deg;
+    }
+    return(deg);
   },
 
   // Private: Return a GeoJSON geomtry extracted from the record fields
@@ -235,12 +362,12 @@ my.Map = Backbone.View.extend({
           value = $.parseJSON(value);
         } catch(e) {}
       }
-
       if (typeof(value) === 'string') {
         value = value.replace('(', '').replace(')', '');
         var parts = value.split(',');
-        var lat = parseFloat(parts[0]);
-        var lon = parseFloat(parts[1]);
+        var lat = this._parseCoordinateString(parts[0]);
+        var lon = this._parseCoordinateString(parts[1]);
+
         if (!isNaN(lon) && !isNaN(parseFloat(lat))) {
           return {
             "type": "Point",
@@ -249,7 +376,7 @@ my.Map = Backbone.View.extend({
         } else {
           return null;
         }
-      } else if (value && value.slice) {
+      } else if (value && _.isArray(value)) {
         // [ lon, lat ]
         return {
           "type": "Point",
@@ -268,6 +395,9 @@ my.Map = Backbone.View.extend({
       // We'll create a GeoJSON like point object from the two lat/lon fields
       var lon = doc.get(this.state.get('lonField'));
       var lat = doc.get(this.state.get('latField'));
+      lon = this._parseCoordinateString(lon);
+      lat = this._parseCoordinateString(lat);
+
       if (!isNaN(parseFloat(lon)) && !isNaN(parseFloat(lat))) {
         return {
           type: 'Point',
@@ -315,10 +445,10 @@ my.Map = Backbone.View.extend({
   //
   _zoomToFeatures: function(){
     var bounds = this.features.getBounds();
-    if (bounds){
+    if (bounds && bounds.getNorthEast() && bounds.getSouthWest()){
       this.map.fitBounds(bounds);
     } else {
-      this.map.setView(new L.LatLng(0, 0), 2);
+      this.map.setView([0, 0], 2);
     }
   },
 
@@ -328,44 +458,23 @@ my.Map = Backbone.View.extend({
   // on [OpenStreetMap](http://openstreetmap.org).
   //
   _setupMap: function(){
+    var self = this;
     this.map = new L.Map(this.$map.get(0));
 
-    var mapUrl = "http://otile{s}.mqcdn.com/tiles/1.0.0/osm/{z}/{x}/{y}.png";
-    var osmAttribution = 'Map data &copy; 2011 OpenStreetMap contributors, Tiles Courtesy of <a href="http://www.mapquest.com/" target="_blank">MapQuest</a> <img src="http://developer.mapquest.com/content/osm/mq_logo.png">';
+    var mapUrl = "//otile{s}-s.mqcdn.com/tiles/1.0.0/osm/{z}/{x}/{y}.png";
+    var osmAttribution = 'Map data &copy; 2011 OpenStreetMap contributors, Tiles Courtesy of <a href="http://www.mapquest.com/" target="_blank">MapQuest</a> <img src="//developer.mapquest.com/content/osm/mq_logo.png">';
     var bg = new L.TileLayer(mapUrl, {maxZoom: 18, attribution: osmAttribution ,subdomains: '1234'});
     this.map.addLayer(bg);
 
-    this.features = new L.GeoJSON();
-    this.features.on('featureparse', function (e) {
-      if (e.properties && e.properties.popupContent){
-        e.layer.bindPopup(e.properties.popupContent);
-       }
-      if (e.properties && e.properties.cid){
-        e.layer.cid = e.properties.cid;
-       }
+    this.markers = new L.MarkerClusterGroup(this._clusterOptions);
 
-    });
+    // rebind this (as needed in e.g. default case above)
+    this.geoJsonLayerOptions.pointToLayer =  _.bind(
+        this.geoJsonLayerOptions.pointToLayer,
+        this);
+    this.features = new L.GeoJSON(null, this.geoJsonLayerOptions);
 
-    // This will be available in the next Leaflet stable release.
-    // In the meantime we add it manually to our layer.
-    this.features.getBounds = function(){
-      var bounds = new L.LatLngBounds();
-      this._iterateLayers(function (layer) {
-        if (layer instanceof L.Marker){
-          bounds.extend(layer.getLatLng());
-        } else {
-          if (layer.getBounds){
-            bounds.extend(layer.getBounds().getNorthEast());
-            bounds.extend(layer.getBounds().getSouthWest());
-          }
-        }
-      }, this);
-      return (typeof bounds.getNorthEast() !== 'undefined') ? bounds : null;
-    }
-
-    this.map.addLayer(this.features);
-
-    this.map.setView(new L.LatLng(0, 0), 2);
+    this.map.setView([0, 0], 2);
 
     this.mapReady = true;
   },
@@ -436,28 +545,30 @@ my.MapMenu = Backbone.View.extend({
       </div> \
       <div class="editor-options" > \
         <label class="checkbox"> \
-          <input type="checkbox" id="editor-auto-zoom" checked="checked" /> \
+          <input type="checkbox" id="editor-auto-zoom" value="autozoom" checked="checked" /> \
           Auto zoom to features</label> \
+        <label class="checkbox"> \
+          <input type="checkbox" id="editor-cluster" value="cluster"/> \
+          Cluster markers</label> \
       </div> \
       <input type="hidden" class="editor-id" value="map-1" /> \
-      </div> \
     </form> \
-',
+  ',
 
   // Define here events for UI elements
   events: {
     'click .editor-update-map': 'onEditorSubmit',
     'change .editor-field-type': 'onFieldTypeChange',
-    'click #editor-auto-zoom': 'onAutoZoomChange'
+    'click #editor-auto-zoom': 'onAutoZoomChange',
+    'click #editor-cluster': 'onClusteringChange'
   },
 
   initialize: function(options) {
     var self = this;
-    this.el = $(this.el);
     _.bindAll(this, 'render');
-    this.model.fields.bind('change', this.render);
+    this.listenTo(this.model.fields, 'change', this.render);
     this.state = new recline.Model.ObjectState(options.state);
-    this.state.bind('change', this.render);
+    this.listenTo(this.state, 'change', this.render);
     this.render();
   },
 
@@ -466,24 +577,28 @@ my.MapMenu = Backbone.View.extend({
   // Also sets up the editor fields and the map if necessary.
   render: function() {
     var self = this;
-    htmls = Mustache.render(this.template, this.model.toTemplateJSON());
-    $(this.el).html(htmls);
+    var htmls = Mustache.render(this.template, this.model.toTemplateJSON());
+    this.$el.html(htmls);
 
     if (this._geomReady() && this.model.fields.length){
       if (this.state.get('geomField')){
         this._selectOption('editor-geom-field',this.state.get('geomField'));
-        this.el.find('#editor-field-type-geom').attr('checked','checked').change();
+        this.$el.find('#editor-field-type-geom').attr('checked','checked').change();
       } else{
         this._selectOption('editor-lon-field',this.state.get('lonField'));
         this._selectOption('editor-lat-field',this.state.get('latField'));
-        this.el.find('#editor-field-type-latlon').attr('checked','checked').change();
+        this.$el.find('#editor-field-type-latlon').attr('checked','checked').change();
       }
     }
     if (this.state.get('autoZoom')) {
-      this.el.find('#editor-auto-zoom').attr('checked', 'checked');
+      this.$el.find('#editor-auto-zoom').attr('checked', 'checked');
+    } else {
+      this.$el.find('#editor-auto-zoom').removeAttr('checked');
     }
-    else {
-      this.el.find('#editor-auto-zoom').removeAttr('checked');
+    if (this.state.get('cluster')) {
+      this.$el.find('#editor-cluster').attr('checked', 'checked');
+    } else {
+      this.$el.find('#editor-cluster').removeAttr('checked');
     }
     return this;
   },
@@ -502,17 +617,17 @@ my.MapMenu = Backbone.View.extend({
   //
   onEditorSubmit: function(e){
     e.preventDefault();
-    if (this.el.find('#editor-field-type-geom').attr('checked')){
+    if (this.$el.find('#editor-field-type-geom').attr('checked')){
       this.state.set({
-        geomField: this.el.find('.editor-geom-field > select > option:selected').val(),
+        geomField: this.$el.find('.editor-geom-field > select > option:selected').val(),
         lonField: null,
         latField: null
       });
     } else {
       this.state.set({
         geomField: null,
-        lonField: this.el.find('.editor-lon-field > select > option:selected').val(),
-        latField: this.el.find('.editor-lat-field > select > option:selected').val()
+        lonField: this.$el.find('.editor-lon-field > select > option:selected').val(),
+        latField: this.$el.find('.editor-lat-field > select > option:selected').val()
       });
     }
     return false;
@@ -523,11 +638,11 @@ my.MapMenu = Backbone.View.extend({
   //
   onFieldTypeChange: function(e){
     if (e.target.value == 'geom'){
-        this.el.find('.editor-field-type-geom').show();
-        this.el.find('.editor-field-type-latlon').hide();
+        this.$el.find('.editor-field-type-geom').show();
+        this.$el.find('.editor-field-type-latlon').hide();
     } else {
-        this.el.find('.editor-field-type-geom').hide();
-        this.el.find('.editor-field-type-latlon').show();
+        this.$el.find('.editor-field-type-geom').hide();
+        this.$el.find('.editor-field-type-latlon').show();
     }
   },
 
@@ -535,10 +650,14 @@ my.MapMenu = Backbone.View.extend({
     this.state.set({autoZoom: !this.state.get('autoZoom')});
   },
 
+  onClusteringChange: function(e){
+    this.state.set({cluster: !this.state.get('cluster')});
+  },
+
   // Private: Helper function to select an option from a select list
   //
   _selectOption: function(id,value){
-    var options = this.el.find('.' + id + ' > select > option');
+    var options = this.$el.find('.' + id + ' > select > option');
     if (options){
       options.each(function(opt){
         if (this.value == value) {

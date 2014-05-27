@@ -5,6 +5,7 @@ this.recline = this.recline || {};
 this.recline.View = this.recline.View || {};
 
 (function($, my) {
+  "use strict";
 // ## MultiView
 //
 // Manage multiple views together along with query editor etc. Usage:
@@ -50,6 +51,30 @@ this.recline.View = this.recline.View || {};
 // ];
 // </pre>
 //
+// **sidebarViews**: (optional) the sidebar views (Filters, Fields) for
+// MultiView to show. This is an array of view hashes. If not provided
+// initialize with (recline.View.)FilterEditor and Fields views (with obvious 
+// id and labels!).
+//
+// <pre>
+// var sidebarViews = [
+//   {
+//     id: 'filterEditor', // used for routing
+//     label: 'Filters', // used for view switcher
+//     view: new recline.View.FielterEditor({
+//       model: dataset
+//     })
+//   },
+//   {
+//     id: 'fieldsView',
+//     label: 'Fields',
+//     view: new recline.View.Fields({
+//       model: dataset
+//     })
+//   }
+// ];
+// </pre>
+//
 // **state**: standard state config for this view. This state is slightly
 //  special as it includes config of many of the subviews.
 //
@@ -74,7 +99,7 @@ my.MultiView = Backbone.View.extend({
   <div class="recline-data-explorer"> \
     <div class="alert-messages"></div> \
     \
-    <div class="header"> \
+    <div class="header clearfix"> \
       <div class="navigation"> \
         <div class="btn-group" data-toggle="buttons-radio"> \
         {{#views}} \
@@ -87,12 +112,12 @@ my.MultiView = Backbone.View.extend({
       </div> \
       <div class="menu-right"> \
         <div class="btn-group" data-toggle="buttons-checkbox"> \
-          <a href="#" class="btn active" data-action="filters">Filters</a> \
-          <a href="#" class="btn active" data-action="fields">Fields</a> \
+          {{#sidebarViews}} \
+          <a href="#" data-action="{{id}}" class="btn">{{label}}</a> \
+          {{/sidebarViews}} \
         </div> \
       </div> \
       <div class="query-editor-here" style="display:inline;"></div> \
-      <div class="clearfix"></div> \
     </div> \
     <div class="data-view-sidebar"></div> \
     <div class="data-view-container"></div> \
@@ -105,8 +130,8 @@ my.MultiView = Backbone.View.extend({
 
   initialize: function(options) {
     var self = this;
-    this.el = $(this.el);
     this._setupState(options.state);
+
     // Hash of 'page' views (i.e. those for whole page) keyed by page name
     if (options.views) {
       this.pageViews = options.views;
@@ -117,32 +142,44 @@ my.MultiView = Backbone.View.extend({
         view: new my.SlickGrid({
           model: this.model,
           state: this.state.get('view-grid')
-        }),
+        })
       }, {
         id: 'graph',
         label: 'Graph',
         view: new my.Graph({
           model: this.model,
           state: this.state.get('view-graph')
-        }),
+        })
       }, {
         id: 'map',
         label: 'Map',
         view: new my.Map({
           model: this.model,
           state: this.state.get('view-map')
-        }),
+        })
       }, {
         id: 'timeline',
         label: 'Timeline',
         view: new my.Timeline({
           model: this.model,
           state: this.state.get('view-timeline')
-        }),
+        })
+      }];
+    }
+    // Hashes of sidebar elements
+    if(options.sidebarViews) {
+      this.sidebarViews = options.sidebarViews;
+    } else {
+      this.sidebarViews = [{
+        id: 'filterEditor',
+        label: 'Filters',
+        view: new my.FilterEditor({
+          model: this.model
+        })
       }, {
-        id: 'transform',
-        label: 'Transform',
-        view: new my.Transform({
+        id: 'fieldsView',
+        label: 'Fields',
+        view: new my.Fields({
           model: this.model
         })
       }];
@@ -160,105 +197,141 @@ my.MultiView = Backbone.View.extend({
     } else {
       this.updateNav(this.pageViews[0].id);
     }
+    this._showHideSidebar();
 
-    this.model.bind('query:start', function() {
-        self.notify({loader: true, persist: true});
-      });
-    this.model.bind('query:done', function() {
-        self.clearNotifications();
-        self.el.find('.doc-count').text(self.model.recordCount || 'Unknown');
-      });
-    this.model.bind('query:fail', function(error) {
-        self.clearNotifications();
-        var msg = '';
-        if (typeof(error) == 'string') {
-          msg = error;
-        } else if (typeof(error) == 'object') {
-          if (error.title) {
-            msg = error.title + ': ';
-          }
-          if (error.message) {
-            msg += error.message;
-          }
-        } else {
-          msg = 'There was an error querying the backend';
+    this.listenTo(this.model, 'query:start', function() {
+      self.notify({loader: true, persist: true});
+    });
+    this.listenTo(this.model, 'query:done', function() {
+      self.clearNotifications();
+      self.$el.find('.doc-count').text(self.model.recordCount || 'Unknown');
+    });
+    this.listenTo(this.model, 'query:fail', function(error) {
+      self.clearNotifications();
+      var msg = '';
+      if (typeof(error) == 'string') {
+        msg = error;
+      } else if (typeof(error) == 'object') {
+        if (error.title) {
+          msg = error.title + ': ';
         }
-        self.notify({message: msg, category: 'error', persist: true});
-      });
+        if (error.message) {
+          msg += error.message;
+        }
+      } else {
+        msg = 'There was an error querying the backend';
+      }
+      self.notify({message: msg, category: 'error', persist: true});
+    });
 
     // retrieve basic data like fields etc
     // note this.model and dataset returned are the same
     // TODO: set query state ...?
     this.model.queryState.set(self.state.get('query'), {silent: true});
-    this.model.fetch()
-      .fail(function(error) {
-        self.notify({message: error.message, category: 'error', persist: true});
-      });
   },
 
   setReadOnly: function() {
-    this.el.addClass('recline-read-only');
+    this.$el.addClass('recline-read-only');
   },
 
   render: function() {
     var tmplData = this.model.toTemplateJSON();
     tmplData.views = this.pageViews;
+    tmplData.sidebarViews = this.sidebarViews;
     var template = Mustache.render(this.template, tmplData);
-    $(this.el).html(template);
+    this.$el.html(template);
 
     // now create and append other views
-    var $dataViewContainer = this.el.find('.data-view-container');
-    var $dataSidebar = this.el.find('.data-view-sidebar');
+    var $dataViewContainer = this.$el.find('.data-view-container');
+    var $dataSidebar = this.$el.find('.data-view-sidebar');
 
     // the main views
     _.each(this.pageViews, function(view, pageName) {
+      view.view.render();
+      if (view.view.redraw) {
+        view.view.redraw();
+      }
       $dataViewContainer.append(view.view.el);
       if (view.view.elSidebar) {
         $dataSidebar.append(view.view.elSidebar);
       }
     });
 
-    var pager = new recline.View.Pager({
-      model: this.model.queryState
-    });
-    this.el.find('.recline-results-info').after(pager.el);
+    _.each(this.sidebarViews, function(view) {
+      this['$'+view.id] = view.view.$el;
+      $dataSidebar.append(view.view.el);
+    }, this);
 
-    var queryEditor = new recline.View.QueryEditor({
-      model: this.model.queryState
-    });
-    this.el.find('.query-editor-here').append(queryEditor.el);
-
-    var filterEditor = new recline.View.FilterEditor({
+    this.pager = new recline.View.Pager({
       model: this.model
     });
-    this.$filterEditor = filterEditor.el;
-    $dataSidebar.append(filterEditor.el);
+    this.$el.find('.recline-results-info').after(this.pager.el);
 
-    var fieldsView = new recline.View.Fields({
-      model: this.model
+    this.queryEditor = new recline.View.QueryEditor({
+      model: this.model.queryState
     });
-    this.$fieldsView = fieldsView.el;
-    $dataSidebar.append(fieldsView.el);
+    this.$el.find('.query-editor-here').append(this.queryEditor.el);
+
+  },
+
+  remove: function () {
+    _.each(this.pageViews, function (view) {
+      view.view.remove();
+    });
+    _.each(this.sidebarViews, function (view) {
+      view.view.remove();
+    });
+    this.pager.remove();
+    this.queryEditor.remove();
+    Backbone.View.prototype.remove.apply(this, arguments);
+  },
+
+  // hide the sidebar if empty
+  _showHideSidebar: function() {
+    var $dataSidebar = this.$el.find('.data-view-sidebar');
+    var visibleChildren = $dataSidebar.children().filter(function() {
+      return $(this).css("display") != "none";
+    }).length;
+
+    if (visibleChildren > 0) {
+      $dataSidebar.show();
+    } else {
+      $dataSidebar.hide();
+    }
   },
 
   updateNav: function(pageName) {
-    this.el.find('.navigation a').removeClass('active');
-    var $el = this.el.find('.navigation a[data-view="' + pageName + '"]');
+    this.$el.find('.navigation a').removeClass('active');
+    var $el = this.$el.find('.navigation a[data-view="' + pageName + '"]');
     $el.addClass('active');
-    // show the specific page
+
+    // add/remove sidebars and hide inactive views
     _.each(this.pageViews, function(view, idx) {
       if (view.id === pageName) {
-        view.view.el.show();
+        view.view.$el.show();
         if (view.view.elSidebar) {
           view.view.elSidebar.show();
         }
-        view.view.trigger('view:show');
       } else {
-        view.view.el.hide();
+        view.view.$el.hide();
         if (view.view.elSidebar) {
           view.view.elSidebar.hide();
         }
-        view.view.trigger('view:hide');
+        if (view.view.hide) {
+          view.view.hide();
+        }
+      }
+    });
+
+    this._showHideSidebar();
+
+    // call view.view.show after sidebar visibility has been determined so
+    // that views can correctly calculate their maximum width
+    _.each(this.pageViews, function(view, idx) {
+      if (view.id === pageName) {
+        if (view.view.show) {
+          view.view.show();
+        }
       }
     });
   },
@@ -266,13 +339,8 @@ my.MultiView = Backbone.View.extend({
   _onMenuClick: function(e) {
     e.preventDefault();
     var action = $(e.target).attr('data-action');
-    if (action === 'filters') {
-      this.$filterEditor.toggle();
-    } else if (action === 'fields') {
-      this.$fieldsView.toggle();
-    } else if (action === 'transform') {
-      this.transformView.el.toggle();
-    }
+    this['$'+action].toggle();
+    this._showHideSidebar();
   },
 
   _onSwitchView: function(e) {
@@ -303,6 +371,7 @@ my.MultiView = Backbone.View.extend({
         'view-graph': graphState,
         backend: this.model.backend.__type__,
         url: this.model.get('url'),
+        dataset: this.model.toJSON(),
         currentView: null,
         readOnly: false
       },
@@ -313,7 +382,7 @@ my.MultiView = Backbone.View.extend({
   _bindStateChanges: function() {
     var self = this;
     // finally ensure we update our state object when state of sub-object changes so that state is always up to date
-    this.model.queryState.bind('change', function() {
+    this.listenTo(this.model.queryState, 'change', function() {
       self.state.set({query: self.model.queryState.toJSON()});
     });
     _.each(this.pageViews, function(pageView) {
@@ -321,7 +390,7 @@ my.MultiView = Backbone.View.extend({
         var update = {};
         update['view-' + pageView.id] = pageView.view.state.toJSON();
         self.state.set(update);
-        pageView.view.state.bind('change', function() {
+        self.listenTo(pageView.view.state, 'change', function() {
           var update = {};
           update['view-' + pageView.id] = pageView.view.state.toJSON();
           // had problems where change not being triggered for e.g. grid view so let's do it explicitly
@@ -335,8 +404,8 @@ my.MultiView = Backbone.View.extend({
   _bindFlashNotifications: function() {
     var self = this;
     _.each(this.pageViews, function(pageView) {
-      pageView.view.bind('recline:flash', function(flash) {
-        self.notify(flash); 
+      self.listenTo(pageView.view, 'recline:flash', function(flash) {
+        self.notify(flash);
       });
     });
   },
@@ -358,14 +427,15 @@ my.MultiView = Backbone.View.extend({
       },
       flash
     );
+    var _template;
     if (tmplData.loader) {
-      var _template = ' \
+      _template = ' \
         <div class="alert alert-info alert-loader"> \
           {{message}} \
           <span class="notification-loader">&nbsp;</span> \
         </div>';
     } else {
-      var _template = ' \
+      _template = ' \
         <div class="alert alert-{{category}} fade in" data-alert="alert"><a class="close" data-dismiss="alert" href="#">×</a> \
           {{message}} \
         </div>';
@@ -395,15 +465,31 @@ my.MultiView = Backbone.View.extend({
 // ### MultiView.restore
 //
 // Restore a MultiView instance from a serialized state including the associated dataset
+//
+// This inverts the state serialization process in Multiview
 my.MultiView.restore = function(state) {
-  var dataset = recline.Model.Dataset.restore(state);
+  // hack-y - restoring a memory dataset does not mean much ... (but useful for testing!)
+  var datasetInfo;
+  if (state.backend === 'memory') {
+    datasetInfo = {
+      backend: 'memory',
+      records: [{stub: 'this is a stub dataset because we do not restore memory datasets'}]
+    };
+  } else {
+    datasetInfo = _.extend({
+        url: state.url,
+        backend: state.backend
+      },
+      state.dataset
+    );
+  }
+  var dataset = new recline.Model.Dataset(datasetInfo);
   var explorer = new my.MultiView({
     model: dataset,
     state: state
   });
   return explorer;
-}
-
+};
 
 // ## Miscellaneous Utilities
 var urlPathRegex = /^([^?]+)(\?.*)?/;
@@ -444,7 +530,7 @@ my.parseQueryString = function(q) {
 
 // Parse the query string out of the URL hash
 my.parseHashQueryString = function() {
-  q = my.parseHashUrl(window.location.hash).query;
+  var q = my.parseHashUrl(window.location.hash).query;
   return my.parseQueryString(q);
 };
 

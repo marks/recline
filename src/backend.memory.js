@@ -2,8 +2,12 @@ this.recline = this.recline || {};
 this.recline.Backend = this.recline.Backend || {};
 this.recline.Backend.Memory = this.recline.Backend.Memory || {};
 
-(function($, my) {
+(function(my) {
+  "use strict";
   my.__type__ = 'memory';
+
+  // private data - use either jQuery or Underscore Deferred depending on what is available
+  var Deferred = (typeof jQuery !== "undefined" && jQuery.Deferred) || _.Deferred;
 
   // ## Data Wrapper
   //
@@ -11,68 +15,73 @@ this.recline.Backend.Memory = this.recline.Backend.Memory || {};
   // functionality like querying, faceting, updating (by ID) and deleting (by
   // ID).
   //
-  // @param data list of hashes for each record/row in the data ({key:
+  // @param records list of hashes for each record/row in the data ({key:
   // value, key: value})
   // @param fields (optional) list of field hashes (each hash defining a field
   // as per recline.Model.Field). If fields not specified they will be taken
   // from the data.
-  my.Store = function(data, fields) {
+  my.Store = function(records, fields) {
     var self = this;
-    this.data = data;
+    this.records = records;
+    // backwards compatability (in v0.5 records was named data)
+    this.data = this.records;
     if (fields) {
       this.fields = fields;
     } else {
-      if (data) {
-        this.fields = _.map(data[0], function(value, key) {
-          return {id: key};
+      if (records) {
+        this.fields = _.map(records[0], function(value, key) {
+          return {id: key, type: 'string'};
         });
       }
     }
 
     this.update = function(doc) {
-      _.each(self.data, function(internalDoc, idx) {
+      _.each(self.records, function(internalDoc, idx) {
         if(doc.id === internalDoc.id) {
-          self.data[idx] = doc;
+          self.records[idx] = doc;
         }
       });
     };
 
-    this.delete = function(doc) {
-      var newdocs = _.reject(self.data, function(internalDoc) {
+    this.remove = function(doc) {
+      var newdocs = _.reject(self.records, function(internalDoc) {
         return (doc.id === internalDoc.id);
       });
-      this.data = newdocs;
+      this.records = newdocs;
     };
 
     this.save = function(changes, dataset) {
       var self = this;
-      var dfd = $.Deferred();
+      var dfd = new Deferred();
       // TODO _.each(changes.creates) { ... }
       _.each(changes.updates, function(record) {
         self.update(record);
       });
       _.each(changes.deletes, function(record) {
-        self.delete(record);
+        self.remove(record);
       });
       dfd.resolve();
       return dfd.promise();
     },
 
     this.query = function(queryObj) {
-      var dfd = $.Deferred();
-      var numRows = queryObj.size || this.data.length;
+      var dfd = new Deferred();
+      var numRows = queryObj.size || this.records.length;
       var start = queryObj.from || 0;
-      var results = this.data;
+      var results = this.records;
+      
       results = this._applyFilters(results, queryObj);
       results = this._applyFreeTextQuery(results, queryObj);
-      // not complete sorting!
+
+      // TODO: this is not complete sorting!
+      // What's wrong is we sort on the *last* entry in the sort list if there are multiple sort criteria
       _.each(queryObj.sort, function(sortObj) {
-        var fieldName = _.keys(sortObj)[0];
+        var fieldName = sortObj.field;
         results = _.sortBy(results, function(doc) {
           var _out = doc[fieldName];
           return _out;
         });
-        if (sortObj[fieldName].order == 'desc') {
+        if (sortObj.order == 'desc') {
           results.reverse();
         }
       });
@@ -88,35 +97,100 @@ this.recline.Backend.Memory = this.recline.Backend.Memory || {};
 
     // in place filtering
     this._applyFilters = function(results, queryObj) {
-      _.each(queryObj.filters, function(filter) {
-        // if a term filter ...
-        if (filter.type === 'term') {
-          results = _.filter(results, function(doc) {
-            return (doc[filter.field] == filter.term);
-          });
-        }
+      var filters = queryObj.filters;
+      // register filters
+      var filterFunctions = {
+        term         : term,
+        terms        : terms,
+        range        : range,
+        geo_distance : geo_distance
+      };
+      var dataParsers = {
+        integer: function (e) { return parseFloat(e, 10); },
+        'float': function (e) { return parseFloat(e, 10); },
+        number: function (e) { return parseFloat(e, 10); },
+        string : function (e) { return e.toString(); },
+        date   : function (e) { return moment(e).valueOf(); },
+        datetime   : function (e) { return new Date(e).valueOf(); }
+      };
+      var keyedFields = {};
+      _.each(self.fields, function(field) {
+        keyedFields[field.id] = field;
       });
-      return results;
+      function getDataParser(filter) {
+        var fieldType = keyedFields[filter.field].type || 'string';
+        return dataParsers[fieldType];
+      }
+
+      // filter records
+      return _.filter(results, function (record) {
+        var passes = _.map(filters, function (filter) {
+          return filterFunctions[filter.type](record, filter);
+        });
+
+        // return only these records that pass all filters
+        return _.all(passes, _.identity);
+      });
+
+      // filters definitions
+      function term(record, filter) {
+        var parse = getDataParser(filter);
+        var value = parse(record[filter.field]);
+        var term  = parse(filter.term);
+
+        return (value === term);
+      }
+
+      function terms(record, filter) {
+        var parse = getDataParser(filter);
+        var value = parse(record[filter.field]);
+        var terms  = parse(filter.terms).split(",");
+
+        return (_.indexOf(terms, value) >= 0);
+      }
+
+      function range(record, filter) {
+        var fromnull = (_.isUndefined(filter.from) || filter.from === null || filter.from === '');
+        var tonull = (_.isUndefined(filter.to) || filter.to === null || filter.to === '');
+        var parse = getDataParser(filter);
+        var value = parse(record[filter.field]);
+        var from = parse(fromnull ? '' : filter.from);
+        var to  = parse(tonull ? '' : filter.to);
+
+        // if at least one end of range is set do not allow '' to get through
+        // note that for strings '' <= {any-character} e.g. '' <= 'a'
+        if ((!fromnull || !tonull) && value === '') {
+          return false;
+        }
+        return ((fromnull || value >= from) && (tonull || value <= to));
+      }
+
+      function geo_distance() {
+        // TODO code here
+      }
     };
 
     // we OR across fields but AND across terms in query string
     this._applyFreeTextQuery = function(results, queryObj) {
       if (queryObj.q) {
         var terms = queryObj.q.split(' ');
+        var patterns=_.map(terms, function(term) {
+          return new RegExp(term.toLowerCase());
+        });
         results = _.filter(results, function(rawdoc) {
           var matches = true;
-          _.each(terms, function(term) {
+          _.each(patterns, function(pattern) {
             var foundmatch = false;
             _.each(self.fields, function(field) {
               var value = rawdoc[field.id];
-              if (value !== null) { 
+              if ((value !== null) && (value !== undefined)) { 
                 value = value.toString();
               } else {
                 // value can be null (apparently in some cases)
                 value = '';
               }
               // TODO regexes?
-              foundmatch = foundmatch || (value.toLowerCase() === term.toLowerCase());
+              foundmatch = foundmatch || (pattern.test(value.toLowerCase()));
               // TODO: early out (once we are true should break to spare unnecessary testing)
               // if (foundmatch) return true;
             });
@@ -166,15 +240,6 @@ this.recline.Backend.Memory = this.recline.Backend.Memory || {};
       });
       return facetResults;
     };
-
-    this.transform = function(editFunc) {
-      var toUpdate = costco.mapDocs(this.data, editFunc);
-      // TODO: very inefficient -- could probably just walk the documents and updates in tandem and update
-      _.each(toUpdate.updates, function(record, idx) {
-        self.data[idx] = record;
-      });
-      return this.save(toUpdate);
-    };
   };
 
-}(jQuery, this.recline.Backend.Memory));
+}(this.recline.Backend.Memory));

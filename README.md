@@ -1,7 +1,8 @@
+[![Build Status](https://travis-ci.org/okfn/recline.png)](https://travis-ci.org/okfn/recline)
+
 A simple but powerful library for building data applications in pure Javascript and HTML.
 
-<h3><a href="http://reclinejs.com/">Recline Website - including Overview, Documentation, Demos etc</a></h3>
-
+<h3><a href="http://okfnlabs.org/recline/">Recline Website - including Overview, Documentation, Demos etc</a></h3>
 
 ## Features
 
@@ -11,14 +12,43 @@ A simple but powerful library for building data applications in pure Javascript 
 * View and edit your data in clean grid interface
 * Bulk update/clean your data using an easy scripting UI
 * Visualize your data
-* And more ... see <http://reclinejs.com/>
+* And more ... see <http://okfnlabs.org/recline/>
 
-## Developer Notes
+## Contributing
 
-Running the tests by opening `test/index.html` in your browser.
+See CONTRIBUTING.md.
 
+### Contributors
+
+* [Rufus Pollock](http://rufuspollock.org/)
+* [Max Ogden](http://maxogden.com/)
+* [John Glover](https://github.com/johnglover)
+* [James Casbon](http://casbon.me/)
+* [Adrià Mercader](http://amercader.net/)
+* [Dominik Moritz](https://github.com/domoritz)
+* [Friedrich Lindenberg](http://pudo.org/)
+* [Alioune Dia](http://https://github.com/aliounedia)
+* [kielni](https://github.com/kielni)
+* And [many more](https://github.com/okfn/recline/graphs/contributors)
 
 ## Changelog
+
+### v0.6 - Sprint 2013 (tbc)
+
+[v0.6 milestone](https://github.com/okfn/recline/issues?milestone=5)
+
+Possible breaking changes
+* Support for row/add/delete/Reorder for recline slickGrid check `_includes/recline-deps.html` for slcikGrid plugins required #396
+* Many backends moved to their own repositories #314
+* Updated Leaflet to latest version 0.4.4 #220
+* Added marker clustering in map view to handle a large number of markers
+* Dataset.restore method removed (not used internally except from Multiview.restore)
+* Views no longer call render in initialize but must be called client code
+* Backend.Memory.Store attribute for holding 'records' renamed to `records` from `data`
+* Require new underscore.deferred vendor library for all use (jQuery no longer required if just using recline.dataset.js)
+* View.el is now the raw DOM element. If you want a jQuery-wrapped version, use view.$el. #350
+* Upgraded timelinejs lib - #316
+* Pager widget now takes Dataset object rather than QueryState object #386
 
 ### v0.5 - July 5th 2012 (first public release)
 

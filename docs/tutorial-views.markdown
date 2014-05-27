@@ -21,7 +21,7 @@ Before writing any code with Recline, you need to do the following preparation s
 2. Include the relevant CSS in the head section of your document:
     {% highlight html %}
 <!-- you do not have to use bootstrap but we use it by default -->
-<link rel="stylesheet" href="vendor/bootstrap/2.0.2/css/bootstrap.css" />
+<link rel="stylesheet" href="vendor/bootstrap/2.3.2/css/bootstrap.css" />
 <!-- CSS for relevant view components - here we just have grid -->
 <link rel="stylesheet" href="css/grid.css" />{% endhighlight %}
 
@@ -31,7 +31,7 @@ Before writing any code with Recline, you need to do the following preparation s
 <script type="text/javascript" src="vendor/underscore/1.1.6/underscore.js"></script>
 <script type="text/javascript" src="vendor/backbone/0.5.1/backbone.js"></script>
 <script type="text/javascript" src="vendor/jquery.mustache.js"></script>
-<script type="text/javascript" src="vendor/bootstrap/2.0.2/bootstrap.js"></script>
+<script type="text/javascript" src="vendor/bootstrap/2.3.2/bootstrap.js"></script>
 <!-- note that we could include individual components rather than whole of recline e.g.
 <script type="text/javascript" src="src/model.js"></script>
 <script type="text/javascript" src="src/backend/memory.js"></script>
@@ -120,13 +120,20 @@ grid.render();
 Let's create a graph view to display a line graph for this dataset.
 
 First, add the additional dependencies for this view. These are the Flot
-library and the Recline Graph view:
+library and the Recline Flot Graph view:
 
 {% highlight html %}
-<link rel="stylesheet" href="css/graph.css">
+<link rel="stylesheet" href="css/flot.css">
 
 <!-- javascript -->
-<script type="text/javascript" src="vendor/jquery.flot/0.7/jquery.flot.js"></script>
+<!--[if lte IE 8]>
+<script language="javascript" type="text/javascript" src="vendor/flot/excanvas.min.js"></script>
+<![endif]-->
+<!-- you only need moment when you have datetime data -->
+<script type="text/javascript" src="vendor/moment/2.0.0/moment.js"></script>
+
+<script type="text/javascript" src="vendor/flot/jquery.flot.js"></script>
+<script type="text/javascript" src="vendor/flot/jquery.flot.time.js"></script>
 <script type="text/javascript" src="src/view.graph.js"></script>
 {% endhighlight %}
 
@@ -156,6 +163,7 @@ var graph = new recline.View.Graph({
   }
 });
 $el.append(graph.el);
+graph.render();
 graph.redraw();
 {% endhighlight %}
 
@@ -174,6 +182,7 @@ var graph = new recline.View.Graph({
   }
 });
 $el.append(graph.el);
+graph.render();
 graph.redraw();
 </script>
 
@@ -187,14 +196,20 @@ library and the Recline Map view:
 
 {% highlight html %}
 <!-- css -->
-<link rel="stylesheet" href="vendor/leaflet/0.3.1/leaflet.css">
+<link rel="stylesheet" href="vendor/leaflet/0.4.4/leaflet.css">
 <!--[if lte IE 8]>
-<link rel="stylesheet" href="vendor/leaflet/0.3.1/leaflet.ie.css" />
+<link rel="stylesheet" href="vendor/leaflet/0.4.4/leaflet.ie.css" />
+<![endif]-->
+<link rel="stylesheet" href="vendor/leaflet.markercluster/MarkerCluster.css">
+<link rel="stylesheet" href="vendor/leaflet.markercluster/MarkerCluster.Default.css">
+<!--[if lte IE 8]>
+<link rel="stylesheet" href="vendor/leaflet.markercluster/MarkerCluster.Default.ie.css" />
 <![endif]-->
 <link rel="stylesheet" href="css/map.css">
 
 <!-- javascript -->
-<script type="text/javascript" src="vendor/leaflet/0.3.1/leaflet.js"></script>
+<script type="text/javascript" src="vendor/leaflet/0.4.4/leaflet.js"></script>
+<script type="text/javascript" src="vendor/leaflet.markercluster/leaflet.markercluster.js"></script>
 <script type="text/javascript" src="src/view-map.js"></script>
 {% endhighlight %}
 
@@ -213,7 +228,7 @@ var map = new recline.View.Map({
   model: dataset
 });
 $el.append(map.el);
-map.redraw();
+map.render();
 {% endhighlight %}
 
 <div id="mymap">&nbsp;</div>
@@ -224,6 +239,44 @@ var map = new recline.View.Map({
   model: dataset
 });
 $el.append(map.el);
-map.redraw();
+map.render();
+</script>
+
+### Creating a Timeline
+
+Now, let's create a timeline for this dataset using the date information which is
+present on these data points.
+
+First, add the additional dependencies for the timeline view. The timeline is built on the excellent Verite Timeline widget so that library is the key one for this view:
+
+{% highlight html %}
+<!-- css -->
+<link rel="stylesheet" href="vendor/timeline/css/timeline.css">
+
+<!-- javascript -->
+<script type="text/javascript" src="vendor/moment/2.0.0/moment.js"></script>
+<script type="text/javascript" src="vendor/timeline/js/timeline.js"></script>
+{% endhighlight %}
+
+Now, create a new div for the map (must have an explicit height for the timeline to render):
+
+{% highlight html %}
+<style type="text/css">#mytimeline .recline-timeline { height: 400px; }</style>
+<div id="mytimeline"></div>
+{% endhighlight %}
+
+Now let's create the timeline, we will use the existing dataset object created
+previously:
+
+{% highlight javascript %}
+{% include tutorial-views-timeline.js %}
+{% endhighlight %}
+
+<style type="text/css">#mytimeline .recline-timeline { height: 400px; }</style>
+<div id="mytimeline"></div>
+<div style="clear: both;"></div>
+
+<script type="text/javascript">
+{% include tutorial-views-timeline.js %}
 </script>
 

@@ -12,7 +12,7 @@ test('basic explorer functionality', function () {
   });
   var $explorer = $el.find('.recline-data-explorer');
   equal($explorer.length, 1);
-  $el.remove();
+  explorer.remove();
 });
 
 test('get State', function () {
@@ -32,8 +32,9 @@ test('get State', function () {
   equal(state.get('query').size, 100);
   deepEqual(state.get('view-graph').group, null);
   equal(state.get('backend'), 'memory');
+  equal(state.get('dataset').url, 'xyz');
   ok(state.get('url') === url);
-  $el.remove();
+  explorer.remove();
 });
 
 test('initialize state', function () {
@@ -59,16 +60,16 @@ test('initialize state', function () {
   ok(explorer.state.get('currentView'), 'graph');
 
   // check the correct view is visible
-  var css = explorer.el.find('.navigation a[data-view="graph"]').attr('class').split(' ');
+  var css = explorer.$el.find('.navigation a[data-view="graph"]').attr('class').split(' ');
   ok(_.contains(css, 'active'), css);
-  var css = explorer.el.find('.navigation a[data-view="grid"]').attr('class').split(' ');
+  var css = explorer.$el.find('.navigation a[data-view="grid"]').attr('class').split(' ');
   ok(!(_.contains(css, 'active')), css);
 
   // check pass through of view config
   deepEqual(explorer.state.get('view-grid')['hiddenFields'], ['x']);
   equal(explorer.state.get('view-map')['lonField'], 'lon1');
 
-  $el.remove();
+  explorer.remove();
 });
 
 test('restore (from serialized state)', function() {
@@ -78,8 +79,28 @@ test('restore (from serialized state)', function() {
   });
   var state = explorer.state.toJSON();
   var explorerNew = recline.View.MultiView.restore(state);
+  equal(explorerNew.model.get('backend'), 'memory');
   var out = explorerNew.state.toJSON();
   equal(out.backend, state.backend);
+
+  explorer.remove();
+  explorerNew.remove();
+
+  var dataset = new recline.Model.Dataset({
+    url: 'http://data.london.gov.uk/datafiles/transport/tfl_passengers.csv',
+    format: 'csv',
+    backend: 'dataproxy'
+  });
+  var explorer = new recline.View.MultiView({
+    model: dataset,
+  });
+  var state = explorer.state.toJSON();
+  var explorerNew = recline.View.MultiView.restore(state);
+  equal(explorerNew.model.get('backend'), 'dataproxy');
+  equal(explorerNew.model.get('format'), 'csv');
+
+  explorer.remove();
+  explorerNew.remove();
 });
 
 })(this.jQuery);
