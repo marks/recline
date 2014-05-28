@@ -3057,15 +3057,19 @@ my.MultiView = Backbone.View.extend({
       $dataSidebar.append(view.view.el);
     }, this);
 
-    this.pager = new recline.View.Pager({
-      model: this.model
-    });
-    this.$el.find('.recline-results-info').after(this.pager.el);
+    if(this.options.disablePager != true){
+      this.pager = new recline.View.Pager({
+        model: this.model
+      });
+      this.$el.find('.recline-results-info').after(this.pager.el);
+    }
 
-    this.queryEditor = new recline.View.QueryEditor({
-      model: this.model.queryState
-    });
-    this.$el.find('.query-editor-here').append(this.queryEditor.el);
+    if(this.options.disableQueryEditor != true){
+      this.queryEditor = new recline.View.QueryEditor({
+        model: this.model.queryState
+      });
+      this.$el.find('.query-editor-here').append(this.queryEditor.el);      
+    }
 
   },
 
@@ -3076,8 +3080,8 @@ my.MultiView = Backbone.View.extend({
     _.each(this.sidebarViews, function (view) {
       view.view.remove();
     });
-    this.pager.remove();
-    this.queryEditor.remove();
+    if(this.options.disablePager != true){this.pager.remove();}
+    if(this.options.disableQueryEditor != true){this.queryEditor.remove();}
     Backbone.View.prototype.remove.apply(this, arguments);
   },
 
