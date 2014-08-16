@@ -52,6 +52,7 @@ jQuery(function($) {
     });
   }
   createExplorer(dataset, state);
+  // dataset.query({size: 5 })
 });
 
 

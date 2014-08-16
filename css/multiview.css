@@ -23,13 +23,6 @@
   float: left;
 }
 
-.recline-data-explorer .header .menu-right {
-  float: right;
-  margin-left: 5px;
-  padding-left: 5px;
-  border-left: solid 2px #ddd;
-}
-
 .header .recline-results-info {
   line-height: 28px;
   margin-left: 20px;
@@ -41,8 +34,11 @@
   *********************************************************/
 
 .header .recline-query-editor {
-  float: right;
-  height: 30px;
+  /*float: right;*/
+  height: 35px;
+  padding-right: 5px;
+  margin-right: 5px;
+  border-right: solid 2px #ddd;
 }
 
 .header .input-prepend {
@@ -88,7 +84,7 @@
 
 .header .recline-pager .pagination input {
   width: 30px;
-  height: 18px;
+  height: 26px;
   padding: 2px 4px;
   margin: 0;
   margin-top: -4px;

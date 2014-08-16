@@ -98,26 +98,27 @@ my.MultiView = Backbone.View.extend({
   template: ' \
   <div class="recline-data-explorer"> \
     <div class="alert-messages"></div> \
-    \
-    <div class="header clearfix"> \
-      <div class="navigation"> \
-        <div class="btn-group" data-toggle="buttons-radio"> \
-        {{#views}} \
-        <button href="#{{id}}" data-view="{{id}}" class="btn btn-default">{{label}}</button> \
-        {{/views}} \
+    <div class="row header clearfix"> \
+      <div class="col-md-6"> \
+        <div class="navigation"> \
+          <div class="btn-group" data-toggle="buttons-radio"> \
+          {{#views}} \
+          <button href="#{{id}}" data-view="{{id}}" class="btn btn-default">{{label}}</button> \
+          {{/views}} \
+          </div> \
+        </div> \
+        <div class="recline-results-info"> \
+          <span class="doc-count">{{recordCount}}</span> records\
         </div> \
       </div> \
-      <div class="recline-results-info"> \
-        <span class="doc-count">{{recordCount}}</span> records\
-      </div> \
-      <div class="menu-right"> \
-        <div class="btn-group" data-toggle="buttons-checkbox"> \
+      <div class="col-md-6 menu-right"> \
+        <div class="btn-group pull-right" data-toggle="buttons-checkbox"> \
           {{#sidebarViews}} \
           <button href="#" data-action="{{id}}" class="btn btn-default">{{label}}</button> \
           {{/sidebarViews}} \
         </div> \
+        <div class="query-editor-here pull-right" style="display:inline;"></div> \
       </div> \
-      <div class="query-editor-here" style="display:inline;"></div> \
     </div> \
     <div class="data-view-sidebar"></div> \
     <div class="data-view-container"></div> \
