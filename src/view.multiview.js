@@ -124,8 +124,8 @@ my.MultiView = Backbone.View.extend({
   </div> \
   ',
   events: {
-    'click .menu-right a': '_onMenuClick',
-    'click .navigation a': '_onSwitchView'
+    'click .menu-right button': '_onMenuClick',
+    'click .navigation button': '_onSwitchView'
   },
 
   initialize: function(options) {
